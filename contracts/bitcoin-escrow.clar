@@ -16,6 +16,7 @@
 (define-data-var arbitrator-fee uint u25) ;; 2.5% fee in basis points
 (define-data-var min-escrow-amount uint u1000000) ;; Minimum amount in microSTX (1 STX)
 (define-data-var escrow-timeout uint u1440) ;; Default timeout in blocks (approximately 10 days)
+(define-data-var last-escrow-id uint u0)
 
 ;; Data Maps
 (define-map EscrowDetails
@@ -43,15 +44,13 @@
 
 ;; Private Functions
 (define-private (is-authorized (caller principal) (escrow-id uint))
-    (let (
-        (escrow (unwrap! (map-get? EscrowDetails { escrow-id: escrow-id }) ERR_ESCROW_NOT_FOUND))
-    )
-        (or 
+    (match (map-get? EscrowDetails { escrow-id: escrow-id })
+        escrow (or 
             (is-eq caller CONTRACT_OWNER)
             (is-eq caller (get seller escrow))
             (is-eq caller (get buyer escrow))
-            (is-some (get arbitrator escrow))
-        )
+            (is-some (get arbitrator escrow)))
+        false
     )
 )
 
@@ -69,7 +68,7 @@
 ;; Public Functions
 (define-public (create-escrow (buyer principal) (amount uint) (timeout uint))
     (let (
-        (escrow-id (+ (len (map-keys EscrowDetails)) u1))
+        (escrow-id (+ (var-get last-escrow-id) u1))
         (current-block block-height)
     )
         (asserts! (>= amount (var-get min-escrow-amount)) ERR_INVALID_AMOUNT)
@@ -93,6 +92,9 @@
                 dispute-reason: none
             }
         )
+        
+        ;; Update last escrow ID
+        (var-set last-escrow-id escrow-id)
         (ok escrow-id)
     )
 )
