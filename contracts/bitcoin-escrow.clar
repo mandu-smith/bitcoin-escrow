@@ -154,3 +154,55 @@
         (ok true)
     )
 )
+
+(define-public (assign-arbitrator (escrow-id uint) (arbitrator-principal principal))
+    (let (
+        (escrow (unwrap! (map-get? EscrowDetails { escrow-id: escrow-id }) ERR_ESCROW_NOT_FOUND))
+        (arbitrator-info (unwrap! (map-get? ArbitratorRegistry { arbitrator: arbitrator-principal }) ERR_UNAUTHORIZED_ARBITRATOR))
+    )
+        (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_NOT_AUTHORIZED)
+        (asserts! (get active arbitrator-info) ERR_UNAUTHORIZED_ARBITRATOR)
+        (asserts! (is-eq (get state escrow) "DISPUTED") ERR_INVALID_STATE)
+        
+        ;; Assign arbitrator
+        (map-set EscrowDetails
+            { escrow-id: escrow-id }
+            (merge escrow {
+                arbitrator: (some arbitrator-principal),
+                state: "ARBITRATION"
+            })
+        )
+        (ok true)
+    )
+)
+
+(define-public (resolve-dispute (escrow-id uint) (refund-to-buyer bool))
+    (let (
+        (escrow (unwrap! (map-get? EscrowDetails { escrow-id: escrow-id }) ERR_ESCROW_NOT_FOUND))
+        (amount (get amount escrow))
+        (fee (calculate-fee amount))
+        (final-amount (- amount fee))
+    )
+        (asserts! (is-some (get arbitrator escrow)) ERR_UNAUTHORIZED_ARBITRATOR)
+        (asserts! (is-eq tx-sender (unwrap! (get arbitrator escrow) ERR_NOT_AUTHORIZED)) ERR_NOT_AUTHORIZED)
+        (asserts! (is-eq (get state escrow) "ARBITRATION") ERR_INVALID_STATE)
+        
+        ;; Transfer funds based on arbitrator's decision
+        (if refund-to-buyer
+            (try! (as-contract (transfer-stx (get buyer escrow) final-amount)))
+            (try! (as-contract (transfer-stx (get seller escrow) final-amount)))
+        )
+        
+        ;; Pay arbitrator fee
+        (try! (as-contract (transfer-stx (unwrap! (get arbitrator escrow) ERR_NOT_AUTHORIZED) fee)))
+        
+        ;; Update escrow state
+        (map-set EscrowDetails
+            { escrow-id: escrow-id }
+            (merge escrow {
+                state: "RESOLVED"
+            })
+        )
+        (ok true)
+    )
+)
