@@ -214,3 +214,28 @@
 (define-read-only (get-arbitrator-info (arbitrator principal))
     (map-get? ArbitratorRegistry { arbitrator: arbitrator })
 )
+
+;; Contract Owner Functions
+(define-public (set-arbitrator-fee (new-fee uint))
+    (begin
+        (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_NOT_AUTHORIZED)
+        (asserts! (<= new-fee u1000) ERR_INVALID_AMOUNT) ;; Max 100%
+        (var-set arbitrator-fee new-fee)
+        (ok true)
+    )
+)
+
+(define-public (register-arbitrator (arbitrator principal))
+    (begin
+        (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_NOT_AUTHORIZED)
+        (map-set ArbitratorRegistry
+            { arbitrator: arbitrator }
+            {
+                active: true,
+                cases-handled: u0,
+                rating: u0
+            }
+        )
+        (ok true)
+    )
+)
