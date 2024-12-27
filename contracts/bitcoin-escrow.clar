@@ -201,14 +201,29 @@
 
 (define-public (resolve-dispute (escrow-id uint) (refund-to-buyer bool))
     (let (
+        ;; Validate escrow-id before using it
+        (valid-id (asserts! (validate-escrow-id escrow-id) ERR_ESCROW_NOT_FOUND))
         (escrow (unwrap! (map-get? EscrowDetails { escrow-id: escrow-id }) ERR_ESCROW_NOT_FOUND))
         (amount (get amount escrow))
         (fee (calculate-fee amount))
         (final-amount (- amount fee))
+        (current-arbitrator (unwrap! (get arbitrator escrow) ERR_UNAUTHORIZED_ARBITRATOR))
     )
+        ;; Additional validation checks
         (asserts! (is-some (get arbitrator escrow)) ERR_UNAUTHORIZED_ARBITRATOR)
-        (asserts! (is-eq tx-sender (unwrap! (get arbitrator escrow) ERR_NOT_AUTHORIZED)) ERR_NOT_AUTHORIZED)
+        (asserts! (is-eq tx-sender current-arbitrator) ERR_NOT_AUTHORIZED)
         (asserts! (is-eq (get state escrow) "ARBITRATION") ERR_INVALID_STATE)
+        
+        ;; Verify the arbitrator is still active
+        (asserts! 
+            (get active 
+                (unwrap! 
+                    (map-get? ArbitratorRegistry { arbitrator: current-arbitrator }) 
+                    ERR_UNAUTHORIZED_ARBITRATOR
+                )
+            ) 
+            ERR_UNAUTHORIZED_ARBITRATOR
+        )
         
         ;; Transfer funds based on arbitrator's decision
         (if refund-to-buyer
@@ -217,9 +232,9 @@
         )
         
         ;; Pay arbitrator fee
-        (try! (as-contract (transfer-stx (unwrap! (get arbitrator escrow) ERR_NOT_AUTHORIZED) fee)))
+        (try! (as-contract (transfer-stx current-arbitrator fee)))
         
-        ;; Update escrow state
+        ;; Update escrow state with validated data
         (map-set EscrowDetails
             { escrow-id: escrow-id }
             (merge escrow {
@@ -269,12 +284,21 @@
 (define-public (deactivate-arbitrator (arbitrator principal))
     (begin
         (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_NOT_AUTHORIZED)
+        (asserts! (is-valid-principal arbitrator) ERR_INVALID_ARBITRATOR)
+        
         (let (
             (arbitrator-info (unwrap! (map-get? ArbitratorRegistry { arbitrator: arbitrator }) ERR_UNAUTHORIZED_ARBITRATOR))
+            ;; Check for any active disputes
+            (has-active-cases (> (get cases-handled arbitrator-info) u0))
         )
+            ;; Prevent deactivation if arbitrator has active cases
+            (asserts! (not has-active-cases) ERR_INVALID_STATE)
+            
             (map-set ArbitratorRegistry
                 { arbitrator: arbitrator }
-                (merge arbitrator-info { active: false })
+                (merge arbitrator-info { 
+                    active: false
+                })
             )
             (ok true)
         )
