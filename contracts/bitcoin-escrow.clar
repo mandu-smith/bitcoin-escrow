@@ -40,3 +40,28 @@
         rating: uint
     }
 )
+
+;; Private Functions
+(define-private (is-authorized (caller principal) (escrow-id uint))
+    (let (
+        (escrow (unwrap! (map-get? EscrowDetails { escrow-id: escrow-id }) ERR_ESCROW_NOT_FOUND))
+    )
+        (or 
+            (is-eq caller CONTRACT_OWNER)
+            (is-eq caller (get seller escrow))
+            (is-eq caller (get buyer escrow))
+            (is-some (get arbitrator escrow))
+        )
+    )
+)
+
+(define-private (calculate-fee (amount uint))
+    (/ (* amount (var-get arbitrator-fee)) u1000)
+)
+
+(define-private (transfer-stx (recipient principal) (amount uint))
+    (if (>= (stx-get-balance tx-sender) amount)
+        (stx-transfer? amount tx-sender recipient)
+        ERR_INSUFFICIENT_FUNDS
+    )
+)
