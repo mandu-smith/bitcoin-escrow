@@ -206,3 +206,11 @@
         (ok true)
     )
 )
+;; Read-only Functions
+(define-read-only (get-escrow-details (escrow-id uint))
+    (map-get? EscrowDetails { escrow-id: escrow-id })
+)
+
+(define-read-only (get-arbitrator-info (arbitrator principal))
+    (map-get? ArbitratorRegistry { arbitrator: arbitrator })
+)
