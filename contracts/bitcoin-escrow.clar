@@ -115,3 +115,42 @@
         (ok true)
     )
 )
+
+(define-public (refund-seller (escrow-id uint))
+    (let (
+        (escrow (unwrap! (map-get? EscrowDetails { escrow-id: escrow-id }) ERR_ESCROW_NOT_FOUND))
+    )
+        (asserts! (is-authorized tx-sender escrow-id) ERR_NOT_AUTHORIZED)
+        (asserts! (is-eq (get state escrow) "PENDING") ERR_INVALID_STATE)
+        (asserts! (>= block-height (get timeout escrow)) ERR_TIMEOUT_NOT_REACHED)
+        
+        ;; Transfer funds back to seller
+        (try! (as-contract (transfer-stx (get seller escrow) (get amount escrow))))
+        
+        ;; Update escrow state
+        (map-set EscrowDetails
+            { escrow-id: escrow-id }
+            (merge escrow { state: "REFUNDED" })
+        )
+        (ok true)
+    )
+)
+
+(define-public (raise-dispute (escrow-id uint) (reason (string-utf8 500)))
+    (let (
+        (escrow (unwrap! (map-get? EscrowDetails { escrow-id: escrow-id }) ERR_ESCROW_NOT_FOUND))
+    )
+        (asserts! (is-eq tx-sender (get buyer escrow)) ERR_NOT_AUTHORIZED)
+        (asserts! (is-eq (get state escrow) "PENDING") ERR_INVALID_STATE)
+        
+        ;; Update escrow state with dispute
+        (map-set EscrowDetails
+            { escrow-id: escrow-id }
+            (merge escrow {
+                state: "DISPUTED",
+                dispute-reason: (some reason)
+            })
+        )
+        (ok true)
+    )
+)
