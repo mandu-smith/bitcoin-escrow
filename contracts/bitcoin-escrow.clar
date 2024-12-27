@@ -11,6 +11,8 @@
 (define-constant ERR_INSUFFICIENT_FUNDS (err u105))
 (define-constant ERR_UNAUTHORIZED_ARBITRATOR (err u106))
 (define-constant ERR_TIMEOUT_NOT_REACHED (err u107))
+(define-constant ERR_INVALID_BUYER (err u108))
+(define-constant ERR_INVALID_ARBITRATOR (err u109))
 
 ;; Data Variables
 (define-data-var arbitrator-fee uint u25) ;; 2.5% fee in basis points
@@ -65,12 +67,29 @@
     )
 )
 
+(define-private (is-valid-principal (address principal))
+    (and 
+        (not (is-eq address CONTRACT_OWNER))
+        (not (is-eq address (as-contract tx-sender)))
+    )
+)
+
+(define-private (validate-escrow-id (escrow-id uint))
+    (and 
+        (>= escrow-id u1)
+        (<= escrow-id (var-get last-escrow-id))
+    )
+)
+
 ;; Public Functions
 (define-public (create-escrow (buyer principal) (amount uint) (timeout uint))
     (let (
         (escrow-id (+ (var-get last-escrow-id) u1))
         (current-block block-height)
     )
+        ;; Add validation for buyer
+        (asserts! (is-valid-principal buyer) ERR_INVALID_BUYER)
+        (asserts! (not (is-eq buyer tx-sender)) ERR_INVALID_BUYER)
         (asserts! (>= amount (var-get min-escrow-amount)) ERR_INVALID_AMOUNT)
         (asserts! (> timeout u0) ERR_INVALID_AMOUNT)
         (asserts! (is-none (map-get? EscrowDetails { escrow-id: escrow-id })) ERR_ALREADY_EXISTS)
@@ -78,7 +97,7 @@
         ;; Lock the funds
         (try! (stx-transfer? amount tx-sender (as-contract tx-sender)))
         
-        ;; Create escrow entry
+        ;; Create escrow entry with validated data
         (map-set EscrowDetails
             { escrow-id: escrow-id }
             {
@@ -93,7 +112,6 @@
             }
         )
         
-        ;; Update last escrow ID
         (var-set last-escrow-id escrow-id)
         (ok escrow-id)
     )
@@ -142,10 +160,11 @@
     (let (
         (escrow (unwrap! (map-get? EscrowDetails { escrow-id: escrow-id }) ERR_ESCROW_NOT_FOUND))
     )
+        ;; Add validation for escrow-id
+        (asserts! (validate-escrow-id escrow-id) ERR_ESCROW_NOT_FOUND)
         (asserts! (is-eq tx-sender (get buyer escrow)) ERR_NOT_AUTHORIZED)
         (asserts! (is-eq (get state escrow) "PENDING") ERR_INVALID_STATE)
         
-        ;; Update escrow state with dispute
         (map-set EscrowDetails
             { escrow-id: escrow-id }
             (merge escrow {
@@ -162,11 +181,13 @@
         (escrow (unwrap! (map-get? EscrowDetails { escrow-id: escrow-id }) ERR_ESCROW_NOT_FOUND))
         (arbitrator-info (unwrap! (map-get? ArbitratorRegistry { arbitrator: arbitrator-principal }) ERR_UNAUTHORIZED_ARBITRATOR))
     )
+        ;; Add validation for arbitrator
+        (asserts! (is-valid-principal arbitrator-principal) ERR_INVALID_ARBITRATOR)
+        (asserts! (validate-escrow-id escrow-id) ERR_ESCROW_NOT_FOUND)
         (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_NOT_AUTHORIZED)
         (asserts! (get active arbitrator-info) ERR_UNAUTHORIZED_ARBITRATOR)
         (asserts! (is-eq (get state escrow) "DISPUTED") ERR_INVALID_STATE)
         
-        ;; Assign arbitrator
         (map-set EscrowDetails
             { escrow-id: escrow-id }
             (merge escrow {
@@ -231,6 +252,8 @@
 (define-public (register-arbitrator (arbitrator principal))
     (begin
         (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_NOT_AUTHORIZED)
+        (asserts! (is-valid-principal arbitrator) ERR_INVALID_ARBITRATOR)
+        
         (map-set ArbitratorRegistry
             { arbitrator: arbitrator }
             {
