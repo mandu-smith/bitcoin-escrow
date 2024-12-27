@@ -65,3 +65,53 @@
         ERR_INSUFFICIENT_FUNDS
     )
 )
+
+;; Public Functions
+(define-public (create-escrow (buyer principal) (amount uint) (timeout uint))
+    (let (
+        (escrow-id (+ (len (map-keys EscrowDetails)) u1))
+        (current-block block-height)
+    )
+        (asserts! (>= amount (var-get min-escrow-amount)) ERR_INVALID_AMOUNT)
+        (asserts! (> timeout u0) ERR_INVALID_AMOUNT)
+        (asserts! (is-none (map-get? EscrowDetails { escrow-id: escrow-id })) ERR_ALREADY_EXISTS)
+        
+        ;; Lock the funds
+        (try! (stx-transfer? amount tx-sender (as-contract tx-sender)))
+        
+        ;; Create escrow entry
+        (map-set EscrowDetails
+            { escrow-id: escrow-id }
+            {
+                seller: tx-sender,
+                buyer: buyer,
+                arbitrator: none,
+                amount: amount,
+                state: "PENDING",
+                created-at: current-block,
+                timeout: (+ current-block timeout),
+                dispute-reason: none
+            }
+        )
+        (ok escrow-id)
+    )
+)
+
+(define-public (release-funds (escrow-id uint))
+    (let (
+        (escrow (unwrap! (map-get? EscrowDetails { escrow-id: escrow-id }) ERR_ESCROW_NOT_FOUND))
+    )
+        (asserts! (is-authorized tx-sender escrow-id) ERR_NOT_AUTHORIZED)
+        (asserts! (is-eq (get state escrow) "PENDING") ERR_INVALID_STATE)
+        
+        ;; Transfer funds to buyer
+        (try! (as-contract (transfer-stx (get buyer escrow) (get amount escrow))))
+        
+        ;; Update escrow state
+        (map-set EscrowDetails
+            { escrow-id: escrow-id }
+            (merge escrow { state: "COMPLETED" })
+        )
+        (ok true)
+    )
+)
