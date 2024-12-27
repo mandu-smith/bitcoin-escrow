@@ -206,6 +206,7 @@
         (ok true)
     )
 )
+
 ;; Read-only Functions
 (define-read-only (get-escrow-details (escrow-id uint))
     (map-get? EscrowDetails { escrow-id: escrow-id })
@@ -237,5 +238,20 @@
             }
         )
         (ok true)
+    )
+)
+
+(define-public (deactivate-arbitrator (arbitrator principal))
+    (begin
+        (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_NOT_AUTHORIZED)
+        (let (
+            (arbitrator-info (unwrap! (map-get? ArbitratorRegistry { arbitrator: arbitrator }) ERR_UNAUTHORIZED_ARBITRATOR))
+        )
+            (map-set ArbitratorRegistry
+                { arbitrator: arbitrator }
+                (merge arbitrator-info { active: false })
+            )
+            (ok true)
+        )
     )
 )
